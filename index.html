@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<!--[if lt IE 7]>      <html class="no-js lt-ie9 lt-ie8 lt-ie7"> <![endif]-->
+<!--[if IE 7]>         <html class="no-js lt-ie9 lt-ie8"> <![endif]-->
+<!--[if IE 8]>         <html class="no-js lt-ie9"> <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js"> <!--<![endif]-->
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+        <title></title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width">
+
+        <!-- Place favicon.ico and apple-touch-icon.png in the root directory -->
+        <link rel="stylesheet" href="src/css/normalize.css">
+        <link rel="stylesheet" href="src/css/main.css">
+        <script src="src/js/vendor/modernizr-2.6.2.min.js"></script>
+        <style>
+body {
+    font-size: 12px;
+}
+
+#graph {
+    font-size: 10px;
+}
+        
+.main {
+    width: 890px;
+    margin: 5px;
+    padding: 10px;
+}
+
+#canvas {
+    border: 1px solid #CCC;
+    width: 900px;
+    height: 175px;
+    margin-bottom: 5px;
+}
+
+input[type=text] {
+    width: 40px;
+    margin-right: 10px;
+    text-align: center;
+}
+
+input[type=button] {
+    height: 24px;
+}
+        </style>
+    </head>
+    <body>
+        <div class="main">
+            <div id="canvas"></div>
+            <div id="inputs"></div>
+            <div id="graph"></div>
+        </div>
+        <script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+        <script>window.jQuery || document.write('<script src="src/js/vendor/jquery-1.9.1.min.js"><\/script>')</script>
+        <script src="src/js/main.js"></script>
+        <script src="src/js/plugins.js"></script>
+        <script src="src/js/vendor/d3/d3.min.js"></script>
+        <script src="src/js/vendor/raphael-2.1.0.min.js"></script>
+        <script src="src/js/vendor/metronome/metronome.js"></script>
+        <script src="src/js/guess.js"></script>
+        <script>
+/*global $ Raphael metronome*/
+var paper = Raphael("canvas", 880, 175),
+    tracks = {},
+    barsets = {},
+    modes = ["perfect", "user", "average", "guess"], 
+    colors = { perfect: "#FFC", user: "#F60", average: "#0C0", guess: "#06F" },
+    results = {},
+    MARGIN = 1;
+    
+modes.forEach(function(v, i) {
+    paper.text(232, 32 + 30 * i, v.toUpperCase()).attr({ 'font-size': 16, 'text-anchor' : 'end', fill: '#666' });
+    tracks[v] = paper.rect(240, 20 + 30 * i, 500, 20).attr({ "stroke-width": 0, stroke: "#999", fill: "#999" });     
+    barsets[v] = paper.set();
+    results[v] = paper.text(750, 32 + 30 * i, "").attr({ 'font-size': 16, 'text-anchor' : 'start', fill: '#666' });
+});
+
+function addBar(mode, x, width) {
+    var bar = paper.rect(tracks[mode].attr('x') + x + MARGIN, tracks[mode].attr('y') + MARGIN, width - MARGIN, tracks[mode].attr('height') - 2 * MARGIN)
+        .attr({
+            stroke: '#999',
+            'stroke-width' : 2,
+            fill: colors[mode]
+        });
+    barsets.perfect.push(bar);
+}
+
+var m = metronome({
+    len: 140,
+    angle: 30,
+    tick: function(t) { $("#count").html(t); },
+    paper: paper,
+    audio: "src/js/vendor/metronome/tick.wav"
+});
+
+$("<div />", {
+	html: 	"<span>tempo: </span>" + 
+			"<input class='metr_input' type='text' id='tempo' value='100' />" +
+			"<span>ticks: </span>" +
+			"<input class='metr_input' type='text' id='ticks' value='40' />" +
+			"<button style='margin: 0 20px' id='startstop'>start</button>" +
+			"<div style='display:inline-block; border: 1px solid gray; padding: 1px 5px' id='count'>0</div>"
+}).appendTo("#inputs");
+
+$('#startstop').click(function() {
+	// start animation
+	$(this).attr("disabled", "disabled");
+    $(this).css("color", "#CCC");
+	//get values for tempo and ticks and restrict
+	var tempo = parseInt($('#tempo').val(), 10);
+	if (!tempo) { tempo = 60; }
+	else if (tempo > 200) { tempo = 200; }
+	else if (tempo < 30) { tempo = 30; }
+	$("#tempo").val(tempo);
+	
+	var ticks = parseInt($('#ticks').val(), 10);
+	if (!ticks) { ticks = 20; }
+	else if (ticks > 60) { ticks = 60; }
+	else if (ticks < 8) { ticks = 8; }
+	$("#ticks").val(ticks); 
+
+	session(tempo, ticks);
+});
+
+// an invidiual recording session
+var session = function(tempo, ticks) {
+    // this will contain the four different sets of timestamps
+    var timestamps = {};
+    // milliseconds in a beat
+    var interval = 60000 / tempo;
+    
+    results.perfect.attr("text", interval + " ms/beat");
+    
+    modes.forEach(function(v, i) {
+        barsets[v].remove();
+        barsets[v] = paper.set();
+        timestamps[v] = [];
+    });
+
+    for (var c = 0; c < ticks; c += 1) {
+        timestamps.perfect.push((c + 1) * interval);
+    }
+
+    var start_time = (new Date()).getTime();    
+    
+    // variables for user input
+    var mytime = start_time,
+        w = (tracks.perfect.attr("width") - MARGIN) / ticks,
+        x_pos = 0,
+        totaltime = interval * ticks;
+
+    // tick events
+    function tickf(t) {
+        $("#count").html(t);
+        addBar("perfect", w * (t - 1), w);
+    }
+
+    // now
+    function donef() {
+        $(document).unbind("keypress");
+        $("#startstop").attr("disabled", false);
+        $("#startstop").css("color", "#000");
+        evaluate(timestamps.user, interval, ticks);
+    }
+
+    //fire up the metronome
+    m.start(tempo, ticks, tickf, donef);
+
+    $(document).bind("keypress", function(e) {
+        if (e.which === 116 || e.which === 121) { //T or Y
+            var t = (new Date()).getTime();
+            var span = t - mytime;
+            
+            var w0 = tracks.user.attr("width") * span / totaltime;
+            addBar("user", x_pos, w0);        
+            mytime = t;
+            x_pos += w0;            
+            timestamps.user.push(t - start_time);
+            //console.log(t - start_time);
+        }
+    });
+};
+
+function evaluate(stamps, interval, ticks) {   
+    var pixels_per_beat = tracks.average.attr("width") / (ticks * interval);
+    
+    
+    var obj = correct(stamps);
+    console.log(obj);
+    results.user.attr("text", obj.values.user + " ms/beat");
+    results.average.attr("text", obj.values.avg + " ms/beat");
+    results.guess.attr("text", obj.values.guess + " ms/beat");
+
+    console.log(interval, ticks);
+
+    var w0 = pixels_per_beat * obj.values.avg;
+    console.log(w0);
+    for (var c = 0; c < obj.total.avg; c += 1) {
+        addBar("average", c * w0, w0);
+    }
+
+    var w0 = pixels_per_beat * obj.values.guess;
+
+    w0 = tracks.guess.attr("width") * obj.values.guess / (interval * ticks);
+    //console.log(w0);
+    for (c = 0; c < obj.total.guess; c += 1) {
+        addBar("guess", c * w0, w0);
+    }    
+}
+        </script>
+    </body>
+</html>
